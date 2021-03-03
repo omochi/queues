@@ -1,4 +1,5 @@
 import class NIO.RepeatedTask
+import Foundation
 
 /// Describes a job that can be scheduled and repeated
 public protocol ScheduledJob {
@@ -26,15 +27,19 @@ extension AnyScheduledJob {
     struct Task {
         let task: RepeatedTask
         let done: EventLoopFuture<Void>
+        let scheduledDate: Date
     }
 
-    func schedule(context: QueueContext) -> Task? {
+    func schedule(context: QueueContext, previousDate: Date?) -> Task? {
         context.logger.trace("Beginning the scheduler process")
-        guard let date = self.scheduler.nextDate() else {
+
+        let now = Date()
+        guard let date = self.scheduler.nextDate(current: now) else {
             context.logger.debug("No date scheduled for \(self.job.name)")
             return nil
         }
-        context.logger.debug("Scheduling \(self.job.name) to run at \(date)")
+
+        context.logger.info("Scheduling \(self.job.name) to run at \(date), now=\(now), prev=\(previousDate)")
         let promise = context.eventLoop.makePromise(of: Void.self)
         let task = context.eventLoop.scheduleRepeatedTask(
             initialDelay: .microseconds(Int64(date.timeIntervalSinceNow * 1_000_000)),
@@ -45,6 +50,10 @@ extension AnyScheduledJob {
             context.logger.trace("Running the scheduled job \(self.job.name)")
             self.job.run(context: context).cascade(to: promise)
         }
-        return .init(task: task, done: promise.futureResult)
+        return .init(
+            task: task,
+            done: promise.futureResult,
+            scheduledDate: date
+        )
     }
 }
